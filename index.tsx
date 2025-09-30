@@ -4,7 +4,7 @@
 */
 import React, { useState, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Play, Pause, Download, Link, CheckCircle, XCircle, AlertCircle, Eye, ArrowUpDown, Search } from 'lucide-react';
+import { Play, Pause, Download, Link, CheckCircle, XCircle, AlertCircle, Eye, ArrowUpDown, Search, Copy, ExternalLink } from 'lucide-react';
 
 type Result = {
     url: string;
@@ -37,6 +37,7 @@ function OsmosisCheckerUI() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterUrl, setFilterUrl] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: keyof Result; direction: 'ascending' | 'descending' } | null>(null);
+  const [copyButtonText, setCopyButtonText] = useState('کپی کردن لینک‌ها');
 
   const fetchWithFallbacks = async (url: string, timeout = 20000) => {
     const proxies = [
@@ -242,7 +243,7 @@ function OsmosisCheckerUI() {
     const headers = ['URL', 'Has Video', 'Status', 'Detection Method', 'Timestamp', 'Playback Speed Button Count', 'Video Tag Count', 'iFrame Count', 'YouTube Embed Count', 'Playback Speed Button Element'];
     const rows = sortedAndFilteredResults.map(r => [
       escapeCSV(r.url),
-      escapeCSV(r.has_video ? 'Yes' : 'No'),
+      escapeCSV(r.has_video ? 'true' : 'false'),
       escapeCSV(r.status),
       escapeCSV(r.detection_method),
       escapeCSV(r.timestamp),
@@ -261,6 +262,26 @@ function OsmosisCheckerUI() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleCopyLinks = () => {
+    const links = sortedAndFilteredResults.map(r => r.url).join('\n');
+    if (!links) return;
+    navigator.clipboard.writeText(links).then(() => {
+        setCopyButtonText('کپی شد!');
+        setTimeout(() => setCopyButtonText('کپی کردن لینک‌ها'), 2000);
+    });
+  };
+
+  const handleOpenLinks = () => {
+    const links = sortedAndFilteredResults.map(r => r.url);
+    if (links.length === 0) return;
+    
+    if (window.confirm(`آیا مطمئن هستید که می‌خواهید ${links.length} لینک را در تب‌های جدید باز کنید؟`)) {
+        links.forEach(link => {
+            window.open(link, '_blank', 'noopener,noreferrer');
+        });
+    }
   };
 
   const withVideo = results.filter(r => r.has_video).length;
@@ -432,6 +453,35 @@ function OsmosisCheckerUI() {
                 </div>
               </div>
               
+              {/* Filtered Links Actions */}
+              {sortedAndFilteredResults.length > 0 && (
+                <div className="bg-gray-50 p-4 rounded-lg border my-4">
+                  <h3 className="text-lg font-bold text-gray-800 mb-2">عملیات روی لینک‌های فیلتر شده</h3>
+                  <textarea
+                    readOnly
+                    value={sortedAndFilteredResults.map(r => r.url).join('\n')}
+                    className="w-full h-32 p-2 border border-gray-300 rounded-md font-mono text-xs bg-gray-100 focus:outline-none"
+                    aria-label="لیست لینک‌های فیلتر شده"
+                  />
+                  <div className="flex items-center gap-3 mt-3">
+                    <button
+                      onClick={handleCopyLinks}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-semibold"
+                    >
+                      <Copy size={16} />
+                      {copyButtonText}
+                    </button>
+                    <button
+                      onClick={handleOpenLinks}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition font-semibold"
+                    >
+                      <ExternalLink size={16} />
+                      باز کردن همه در تب جدید
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="overflow-x-auto relative rounded-lg border">
                 <table className="w-full text-sm text-right text-gray-600">
                   <thead className="text-xs text-gray-700 uppercase bg-gray-100">
