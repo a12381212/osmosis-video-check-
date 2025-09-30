@@ -2,9 +2,23 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Play, Pause, Download, Link, CheckCircle, XCircle, AlertCircle, Eye } from 'lucide-react';
+import { Play, Pause, Download, Link, CheckCircle, XCircle, AlertCircle, Eye, ArrowUpDown, Search } from 'lucide-react';
+
+type Result = {
+    url: string;
+    has_video: boolean;
+    status: string;
+    timestamp: string;
+    detection_method: string;
+    playback_speed_button: number;
+    playback_speed_button_element: string | null;
+    video_tag: number;
+    iframe: number;
+    youtube_embed: number;
+};
+
 
 function OsmosisCheckerUI() {
   const [urls, setUrls] = useState<string[]>([
@@ -14,10 +28,15 @@ function OsmosisCheckerUI() {
     'https://www.osmosis.org/notes/Abdominal_aortic_aneurysm', // This is a note, not a video
     'https://www.osmosis.org/learn/Overview_of_the_eye', // This is a video
   ]);
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<Result[]>([]);
   const [isChecking, setIsChecking] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showBrowser, setShowBrowser] = useState(true);
+
+  // State for filtering and sorting
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterUrl, setFilterUrl] = useState('');
+  const [sortConfig, setSortConfig] = useState<{ key: keyof Result; direction: 'ascending' | 'descending' } | null>(null);
 
   const fetchWithFallbacks = async (url: string, timeout = 20000) => {
     const proxies = [
@@ -61,7 +80,7 @@ function OsmosisCheckerUI() {
       const url = validUrls[i];
       setCurrentIndex(i + 1);
 
-      let result;
+      let result: Result;
       try {
         const response = await fetchWithFallbacks(url, 20000);
 
@@ -166,24 +185,62 @@ function OsmosisCheckerUI() {
     setCurrentIndex(0);
   };
 
+  const sortedAndFilteredResults = useMemo(() => {
+    let filterableResults = [...results];
+
+    // Filtering logic
+    filterableResults = filterableResults.filter(result => {
+      const statusMatch =
+        filterStatus === 'all' ||
+        (filterStatus === 'yes' && result.has_video) ||
+        (filterStatus === 'no' && !result.has_video && !result.status.startsWith('خطا')) ||
+        (filterStatus === 'error' && result.status.startsWith('خطا'));
+
+      const urlMatch = filterUrl === '' || result.url.toLowerCase().includes(filterUrl.toLowerCase());
+
+      return statusMatch && urlMatch;
+    });
+
+    // Sorting logic
+    if (sortConfig !== null) {
+      filterableResults.sort((a, b) => {
+        if (a[sortConfig.key] < b[sortConfig.key]) {
+          return sortConfig.direction === 'ascending' ? -1 : 1;
+        }
+        if (a[sortConfig.key] > b[sortConfig.key]) {
+          return sortConfig.direction === 'ascending' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+
+    return filterableResults;
+  }, [results, filterStatus, filterUrl, sortConfig]);
+  
+  const requestSort = (key: keyof Result) => {
+    let direction: 'ascending' | 'descending' = 'ascending';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
+      direction = 'descending';
+    }
+    setSortConfig({ key, direction });
+  };
+
   const exportToCSV = () => {
-    if (results.length === 0) return;
+    if (sortedAndFilteredResults.length === 0) return;
 
     const escapeCSV = (val: any) => {
         if (val === undefined || val === null) {
             return '';
         }
         let str = String(val);
-        // If the string contains a comma, a double quote, or a newline, wrap it in double quotes
         if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-            // Escape any existing double quotes by doubling them
             str = `"${str.replace(/"/g, '""')}"`;
         }
         return str;
     };
 
     const headers = ['URL', 'Has Video', 'Status', 'Detection Method', 'Timestamp', 'Playback Speed Button Count', 'Video Tag Count', 'iFrame Count', 'YouTube Embed Count', 'Playback Speed Button Element'];
-    const rows = results.map(r => [
+    const rows = sortedAndFilteredResults.map(r => [
       escapeCSV(r.url),
       escapeCSV(r.has_video ? 'Yes' : 'No'),
       escapeCSV(r.status),
@@ -210,6 +267,18 @@ function OsmosisCheckerUI() {
   const withoutVideo = results.filter(r => !r.has_video && r.status === 'موفق').length;
   const errors = results.filter(r => r.status.startsWith('خطا')).length;
   const total = results.length;
+  
+  const SortableHeader = ({ columnKey, children }: { columnKey: keyof Result, children: React.ReactNode }) => {
+    const isSorting = sortConfig?.key === columnKey;
+    return (
+      <th scope="col" className="px-6 py-3">
+        <button onClick={() => requestSort(columnKey)} className="flex items-center gap-1.5 group font-bold">
+          {children}
+          <ArrowUpDown size={14} className={isSorting ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-600'} />
+        </button>
+      </th>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-6" dir="rtl">
@@ -246,14 +315,12 @@ function OsmosisCheckerUI() {
             </p>
           </div>
 
-          {/* Info Box */}
           <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
             <p className="text-sm text-blue-700">
               <strong>روش تشخیص:</strong> بررسی داده‌های ساختاری صفحه (<code className="bg-blue-100 px-1 rounded">__NEXT_DATA__</code>) و نشانه‌های دیگر.
             </p>
           </div>
-
-          {/* Options */}
+          
           <div className="mt-4 flex items-center gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -270,7 +337,6 @@ function OsmosisCheckerUI() {
             </label>
           </div>
 
-          {/* Start Button */}
           <button
             onClick={startCheck}
             disabled={isChecking || urls.filter(u => u.trim()).length === 0}
@@ -291,7 +357,6 @@ function OsmosisCheckerUI() {
           </button>
         </div>
 
-        {/* Results Section */}
         {results.length > 0 && (
           <>
             {/* Summary */}
@@ -332,91 +397,99 @@ function OsmosisCheckerUI() {
                 className="mt-4 w-full bg-green-500 text-white py-3 rounded-lg font-bold hover:bg-green-600 transition flex items-center justify-center gap-2"
               >
                 <Download size={20} />
-                دانلود نتایج (CSV)
+                دانلود نتایج فیلتر شده (CSV)
               </button>
             </div>
 
-            {/* Detailed Results */}
+            {/* Detailed Results Table */}
             <div className="bg-white rounded-2xl shadow-xl p-6">
-              <h2 className="text-2xl font-bold text-gray-800 mb-4">🎬 جزئیات نتایج</h2>
-              <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
-                {results.map((result, index) => (
-                  <div
-                    key={index}
-                    className={`p-4 rounded-lg border-2 ${
-                      result.status.startsWith('خطا') 
-                        ? 'bg-red-50 border-red-200' 
-                        : result.has_video
-                          ? 'bg-green-50 border-green-200'
-                          : 'bg-yellow-50 border-yellow-200'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          {result.status.startsWith('خطا') ? (
-                             <AlertCircle className="text-red-500 flex-shrink-0" size={20} />
-                          ) : result.has_video ? (
-                            <CheckCircle className="text-green-500 flex-shrink-0" size={20} />
-                          ) : (
-                            <XCircle className="text-yellow-500 flex-shrink-0" size={20} />
-                          )}
-                          <a href={result.url} target="_blank" rel="noopener noreferrer" className="text-sm text-gray-600 break-all hover:underline" title={result.url}>{result.url}</a>
-                        </div>
-                        
-                        <div className="mt-2 mb-2">
-                          <span className={`text-xs px-2 py-1 rounded font-semibold ${
-                            result.status.startsWith('خطا')
-                              ? 'bg-red-200 text-red-800'
-                              : result.has_video 
-                                ? 'bg-green-200 text-green-800' 
-                                : 'bg-gray-200 text-gray-600'
-                          }`}>
-                            {result.status.startsWith('خطا') ? result.status : result.detection_method}
-                          </span>
-                        </div>
-
-                        {!result.status.startsWith('خطا') && (
-                          <>
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {result.playback_speed_button > 0 && (
-                                <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full">
-                                  ⚡ Speed Control ({result.playback_speed_button})
-                                </span>
-                              )}
-                              {result.video_tag > 0 && (
-                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                                  Video Tag ({result.video_tag})
-                                </span>
-                              )}
-                              {result.iframe > 0 && (
-                                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-                                  iFrame ({result.iframe})
-                                </span>
-                              )}
-                              {result.youtube_embed > 0 && (
-                                <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full">
-                                  YouTube ({result.youtube_embed})
-                                </span>
-                              )}
-                            </div>
-                            {result.playback_speed_button_element && (
-                              <div className="mt-2">
-                                <p className="text-xs font-semibold text-gray-600 mb-1">کد المنت شناسایی شده:</p>
-                                <pre className="bg-gray-100 p-2 rounded-md text-xs text-gray-800 overflow-x-auto font-mono">
-                                  <code>
-                                    {result.playback_speed_button_element}
-                                  </code>
-                                </pre>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                      <span className="text-xs text-gray-500 whitespace-nowrap pl-2">{result.timestamp}</span>
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">🎬 جزئیات نتایج ({sortedAndFilteredResults.length} مورد)</h2>
+              
+              {/* Filter Controls */}
+              <div className="flex flex-col md:flex-row gap-4 mb-4 py-4 border-y">
+                <div className="flex items-center gap-2">
+                    <label htmlFor="status-filter" className="text-sm font-medium text-gray-700 shrink-0">فیلتر وضعیت:</label>
+                    <select id="status-filter" value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="w-full md:w-auto bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5">
+                        <option value="all">همه</option>
+                        <option value="yes">دارای ویدیو</option>
+                        <option value="no">بدون ویدیو</option>
+                        <option value="error">خطا</option>
+                    </select>
+                </div>
+                <div className="relative flex-grow">
+                    <label htmlFor="url-search" className="sr-only">جستجوی URL</label>
+                    <input
+                        type="text"
+                        id="url-search"
+                        placeholder="جستجو در URL..."
+                        value={filterUrl}
+                        onChange={e => setFilterUrl(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                        <Search size={18} className="text-gray-400" />
                     </div>
+                </div>
+              </div>
+              
+              <div className="overflow-x-auto relative rounded-lg border">
+                <table className="w-full text-sm text-right text-gray-600">
+                  <thead className="text-xs text-gray-700 uppercase bg-gray-100">
+                    <tr>
+                      <th scope="col" className="px-6 py-3 font-bold">#</th>
+                      <SortableHeader columnKey="url">URL</SortableHeader>
+                      <SortableHeader columnKey="has_video">دارای ویدیو</SortableHeader>
+                      <SortableHeader columnKey="status">وضعیت</SortableHeader>
+                      <SortableHeader columnKey="detection_method">روش تشخیص</SortableHeader>
+                      <SortableHeader columnKey="timestamp">زمان</SortableHeader>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedAndFilteredResults.map((result, index) => (
+                      <tr key={result.url + index} className="bg-white border-b hover:bg-gray-50">
+                        <td className="px-6 py-4 font-medium text-gray-900">{index + 1}</td>
+                        <td className="px-6 py-4 max-w-xs">
+                          <a href={result.url} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:underline truncate block" title={result.url}>
+                            {result.url}
+                          </a>
+                        </td>
+                        <td className="px-6 py-4">
+                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                              result.status.startsWith('خطا')
+                                ? 'bg-gray-100 text-gray-600'
+                                : result.has_video
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-yellow-100 text-yellow-800'
+                            }`}>
+                            {result.status.startsWith('خطا') ? (
+                              <XCircle size={14} />
+                            ) : result.has_video ? (
+                              <CheckCircle size={14} />
+                            ) : (
+                              <XCircle size={14} />
+                            )}
+                            {result.status.startsWith('خطا') ? 'N/A' : result.has_video ? 'true' : 'false'}
+                           </span>
+                        </td>
+                        <td className="px-6 py-4">
+                           <span className={`font-semibold ${
+                             result.status.startsWith('خطا') ? 'text-red-600' : 'text-gray-700'
+                           }`}>
+                             {result.status}
+                           </span>
+                        </td>
+                        <td className="px-6 py-4">{result.detection_method}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">{result.timestamp}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {sortedAndFilteredResults.length === 0 && (
+                  <div className="text-center py-10 text-gray-500">
+                    <p className="font-semibold">هیچ موردی با فیلترهای اعمال شده یافت نشد.</p>
+                    <p className="text-sm mt-1">لطفاً فیلترها را تغییر دهید یا حذف کنید.</p>
                   </div>
-                ))}
+                )}
               </div>
             </div>
           </>
